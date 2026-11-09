@@ -112,6 +112,17 @@ InputManager::~InputManager() {
 
 void InputManager::load(const IniDocument& cfg) {
     ffb_.configure(ForceFeedbackConfig::load(cfg));
+    // [netwheel] enabled / host / port: a wheel on another machine, shown as a virtual wheel (net_wheel.h).
+    netwheel_.reset();
+    {
+        const std::string on = to_lower(cfg.get("netwheel", "enabled").value_or("off"));
+        if (on == "on" || on == "1" || on == "true") {
+            const std::string host = cfg.get("netwheel", "host").value_or("auto");
+            const int port = std::clamp(std::atoi(cfg.get("netwheel", "port").value_or("27920").c_str()), 1, 65535);
+            auto nw = std::make_unique<NetWheel>();
+            if (nw->start(host, port)) netwheel_ = std::move(nw);
+        }
+    }
     for (int i = 0; i < kMaxPlayers; ++i) {
         Player& p = players_[i];
         std::string sec = section_name(i);
@@ -294,7 +305,7 @@ void InputManager::add_device(SDL_JoystickID id) {
                                                              SDL_GetJoystickGUIDForID(id).data[14]);
     d.wheel = is_wheel(type, type == SDL_JOYSTICK_TYPE_UNKNOWN && ForceFeedback::has_wheel_forces(d.joystick));
 #if GT3R_XR
-    d.vr_pad = SDL_IsJoystickVirtual(id); // (the game makes no other)
+    d.vr_pad = SDL_IsJoystickVirtual(id) && type != SDL_JOYSTICK_TYPE_WHEEL; // (the game makes no other gamepad; a virtual wheel is the network wheel's)
 #endif
     d.dualsense = d.gamepad && SDL_GetGamepadType(d.gamepad) == SDL_GAMEPAD_TYPE_PS5;
     if (const char* serial = SDL_GetJoystickSerial(d.joystick)) d.serial = serial;
@@ -868,6 +879,7 @@ void InputManager::evaluate_profile(const Player& p, const Device* dev, bool key
 }
 
 void InputManager::update(double dt) {
+    if (netwheel_) netwheel_->poll(dt);
     if (capturing_ && chord_capture_) {
         update_chord_capture();
     } else if (capturing_) {
@@ -915,6 +927,25 @@ void InputManager::update(double dt) {
         const Device* steer = tagged_steering(p);
         for (const Device* d : {find_device(p.device), steer}) {
             if (!d || (d == steer && d->id == p.device)) continue;
+            if (netwheel_ && d->id == netwheel_->joystick_id()) { // the network wheel plays its forces on the server
+                if (p.ffb_age < 0.25) {
+                    const ForceFeedbackState& s = p.ffb;
+                    NetWheelForce f;
+                    f.speed_kmh = s.speed_kmh;
+                    f.brake = s.brake;
+                    f.abs_level = s.abs_level;
+                    f.steer_force = s.steer_force;
+                    f.jolt = s.jolt;
+                    f.traction = s.traction;
+                    f.understeer = s.understeer;
+                    f.oversteer = s.oversteer;
+                    f.wheel_on = s.wheel_on && ffb_.config().enabled && ffb_.config().wheel;
+                    f.spring = ffb::wheel_spring_coefficient(s, ffb_.config());
+                    f.constant = ffb::wheel_constant_level(s, ffb_.config());
+                    netwheel_->send_force(f);
+                }
+                continue; // (no packets: the server lets the wheel go)
+            }
             if (p.ffb_age < 0.25)
                 ffb_.apply(d->id, d->gamepad, d->joystick, d == steer ? -1 : pedal_trigger(p, PadButton::Square),
                            d == steer ? -1 : pedal_trigger(p, PadButton::Cross), p.ffb, time_);

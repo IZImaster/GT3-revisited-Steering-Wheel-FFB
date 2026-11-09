@@ -2,6 +2,7 @@
 
 #include "input/bindings.h"
 #include "input/force_feedback.h"
+#include "input/net_wheel.h"
 #include "platform/device_tilt.h"
 
 #include <SDL3/SDL_events.h>
@@ -9,6 +10,7 @@
 #include <SDL3/SDL_haptic.h>
 
 #include <array>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -384,6 +386,7 @@ private:
     std::vector<float> any_ramps_; // its keyboard bindings' ramps
     SDL_Sensor* device_accel_ = nullptr; // phone/tablet accelerometer
     ForceFeedback ffb_;
+    std::unique_ptr<NetWheel> netwheel_; // [netwheel]: a wheel on another machine (net_wheel.h)
     double time_ = 0;
     bool phone_vibration_ = false;
     bool background_ = false;      // [input] background

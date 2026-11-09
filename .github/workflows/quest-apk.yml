@@ -1,0 +1,30 @@
+name: quest-apk
+
+# Builds the Meta Quest APK (docs/dev/VR.md): Actions > quest-apk > Run workflow, or on a push to netwheel.
+on:
+  workflow_dispatch:
+  push:
+    branches: [netwheel]
+
+jobs:
+  quest:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: zulu
+          java-version: 21
+      - name: Install NDK and CMake
+        run: |
+          yes | "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --install \
+            "ndk;27.0.12077973" "cmake;3.22.1" > /dev/null
+      - name: Fetch SDL (OpenXR fork)
+        run: android/fetch-sdl.sh --xr
+      - name: Build Quest APK
+        working-directory: android
+        run: ./gradlew --no-daemon assembleDebug -Pquest
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gt3r-quest-debug
+          path: android/app/build/outputs/apk/debug/app-quest-debug.apk
