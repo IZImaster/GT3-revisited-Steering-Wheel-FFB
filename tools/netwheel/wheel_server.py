@@ -242,6 +242,9 @@ def find_wheel():
     return None
 
 
+BUZZ = {"until": 0.0, "level": 0.0}   # wheel_cmd.py buzz: a test vibration
+
+
 def command(text, steer_raw, client):
     """A local command from wheel_cmd.py; returns the answer shown there."""
     half = STEER_DEGREES / 2.0
