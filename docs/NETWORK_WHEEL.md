@@ -35,6 +35,20 @@ sudo apt install python3-evdev
 sudo python3 tools/netwheel/wheel_server.py
 ```
 
+The server sets the wheel's rotation (`WHEEL_RANGE_DEGREES`) through the driver's `range` file,
+which only root may write by default. To run it without sudo, allow that once, then unplug and
+replug the wheel's USB cable:
+
+```
+sudo tee /etc/udev/rules.d/99-wheel-range.rules > /dev/null <<'EOF'
+ACTION=="bind", SUBSYSTEM=="hid", DRIVER=="logitech-hidpp-device", RUN+="/bin/chmod a+w /sys%p/range"
+EOF
+sudo udevadm control --reload-rules
+```
+
+`wheel_cmd.py` (center, reset, status, watch, buzz) talks to the running server. While no game is
+connected the server keeps a centring spring on and vibrates near full lock (`IDLE_*`, `WARN_*`).
+
 Settings are at the top of the file (force gain, direction, pedal polarity). `wheel_testclient.py`
 shows the wheel state and plays test forces without the game.
 

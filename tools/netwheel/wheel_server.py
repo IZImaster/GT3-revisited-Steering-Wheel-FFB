@@ -241,6 +241,9 @@ def set_range(dev):
             log("wheel range set to", WHEEL_RANGE_DEGREES, "degrees")
         except OSError as e:
             log("could not set the wheel range:", e)
+            if isinstance(e, PermissionError):
+                log("  the wheel stays at its own range; allow setting it once with the udev rule "
+                    "in docs/NETWORK_WHEEL.md (Server side), or run the server with sudo")
 
 
 BUZZ = {"until": 0.0, "level": 0.0}   # wheel_cmd.py buzz: a test vibration
