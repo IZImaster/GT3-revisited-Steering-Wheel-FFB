@@ -29,8 +29,8 @@ FFB_MAX_HZ = 60          # most force updates per second sent to the wheel
 IDLE_FORCES = True       # False: the wheel stays limp while no game is connected
 IDLE_SPRING = 0.30       # centring force, 0.0 (none) .. 1.0 (the wheel's strongest spring)
 WARN_START = 0.95        # rumble from this much of full lock (0.95 = 95%) ...
-WARN_SOFT = 0.15         # ... this softly (0.0 .. 1.0) ...
-WARN_STRONG = 0.45       # ... growing to this at 99% ...
+WARN_SOFT = 0.25         # ... this softly (0.0 .. 1.0 of the wheel's strongest vibration) ...
+WARN_STRONG = 0.60       # ... growing to this at 99% ...
 WARN_STOP = 0.995        # ... and nothing from here on (full lock), so it doesn't buzz against the stop
 CENTER_FILE = "~/.wheel_center"  # the straight-ahead position saved by: python3 wheel_cmd.py center
 
@@ -164,13 +164,13 @@ class Ffb:
         for name in self.ids:
             self._stop_one(name)
 
-    def apply(self, spring, const, vib, now):
-        """spring 0..32767, const +-32767 (positive pushes right), vib 0..1"""
+    def apply(self, spring, const, vib, now, vib_full=9000):
+        """spring 0..32767, const +-32767 (positive pushes right), vib 0..1 (of vib_full, max 32767)"""
         if now - self.last_sent < 1.0 / FFB_MAX_HZ:
             return
         spring = int(clamp(spring, 0, 32767))
         const = int(clamp(const, -32767, 32767))
-        vib_mag = int(clamp(vib, 0.0, 1.0) * 9000)
+        vib_mag = int(clamp(vib, 0.0, 1.0) * clamp(vib_full, 0, 32767))
         # Positive "right" force: the wheel's own convention for direction 0x4000 is leftwards,
         # so the sign is flipped here (INVERT_FORCE flips it back).
         push = const if INVERT_FORCE else -const
@@ -243,6 +243,9 @@ def set_range(dev):
             log("could not set the wheel range:", e)
 
 
+BUZZ = {"until": 0.0, "level": 0.0}   # wheel_cmd.py buzz: a test vibration
+
+
 def command(text, steer_raw, client):
     """A local command from wheel_cmd.py; returns the answer shown there."""
     half = WHEEL_RANGE_DEGREES / 2.0
@@ -254,6 +257,16 @@ def command(text, steer_raw, client):
         save_center(32768)
         log("centre reset to the wheel's own")
         return "centre reset to the wheel's own calibration"
+    if text.startswith("buzz"):
+        if client:
+            return "a game is connected: buzz works only while no game is connected"
+        try:
+            level = clamp(float(text.split()[1]), 0.05, 1.0) if len(text.split()) > 1 else 0.5
+        except ValueError:
+            level = 0.5
+        BUZZ["until"], BUZZ["level"] = time.monotonic() + 2.0, level
+        log("test vibration, strength", level)
+        return "vibrating for 2 seconds at strength %.2f" % level
     if text == "status":
         s = norm_steer(steer_raw)
         side = "right" if s > 0 else "left" if s < 0 else ""
@@ -262,7 +275,7 @@ def command(text, steer_raw, client):
             "game connected from %s" % client[0] if client else "no game connected (idle forces %s)" %
             ("on" if IDLE_FORCES else "off"),
             "the wheel's own" if CENTER == 32768 else "saved (%d)" % CENTER)).replace("  ", " ")
-    return "unknown command: %s (use center, reset or status)" % text
+    return "unknown command: %s (use center, reset, status, watch or buzz)" % text
 
 
 def run(dev, sock):
@@ -371,7 +384,9 @@ def run(dev, sock):
                     ffb_active = False
                 if client is None and IDLE_FORCES:
                     spring, vib = idle_forces(norm_steer(steer_raw))
-                    ffb.apply(spring, 0, vib, now)
+                    if now < BUZZ["until"]:
+                        vib = BUZZ["level"]
+                    ffb.apply(spring, 0, vib, now, 32767)
                 if client:
                     send(client, T_STATE, STATE.pack(
                         int((now - t0) * 1000) & 0xFFFFFFFF,

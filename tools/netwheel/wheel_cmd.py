@@ -5,6 +5,7 @@
   python3 wheel_cmd.py reset    back to the wheel's own centre
   python3 wheel_cmd.py status   where the wheel is now (percent of full lock, degrees)
   python3 wheel_cmd.py watch    status ten times a second until Ctrl+C
+  python3 wheel_cmd.py buzz     vibrate the wheel for 2 seconds (strength 0.5); buzz 1.0 = strongest
 """
 import socket
 import sys
@@ -23,7 +24,7 @@ def ask(sock, text):
 
 def main():
     cmd = sys.argv[1] if len(sys.argv) > 1 else ""
-    if cmd not in ("center", "reset", "status", "watch"):
+    if cmd not in ("center", "reset", "status", "watch", "buzz"):
         print(__doc__)
         return
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -36,6 +37,8 @@ def main():
         except KeyboardInterrupt:
             print()
         return
+    if cmd == "buzz" and len(sys.argv) > 2:
+        cmd += " " + sys.argv[2]
     print(ask(sock, cmd))
 
 
