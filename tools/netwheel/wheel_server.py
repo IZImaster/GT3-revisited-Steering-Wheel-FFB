@@ -5,6 +5,7 @@ Reads the wheel with evdev, streams its state over UDP to the game, and plays th
 game's force feedback back on the wheel. See wheel_protocol.md.
 """
 import glob
+import os
 import select
 import socket
 import struct
@@ -24,6 +25,15 @@ FFB_TIMEOUT = 0.30       # seconds without a force packet before the wheel goes 
 CLIENT_TIMEOUT = 3.0     # seconds without any packet before the game is forgotten
 FFB_MAX_HZ = 60          # most force updates per second sent to the wheel
 
+# While no game is connected (idle):
+IDLE_FORCES = True       # False: the wheel stays limp while no game is connected
+IDLE_SPRING = 0.30       # centring force, 0.0 (none) .. 1.0 (the wheel's strongest spring)
+WARN_START = 0.95        # rumble from this much of full lock (0.95 = 95%) ...
+WARN_SOFT = 0.15         # ... this softly (0.0 .. 1.0) ...
+WARN_STRONG = 0.45       # ... growing to this at 99% ...
+WARN_STOP = 0.995        # ... and nothing from here on (full lock), so it doesn't buzz against the stop
+CENTER_FILE = "~/.wheel_center"  # the straight-ahead position saved by: python3 wheel_cmd.py center
+
 # ---------------------------------------------------------------- protocol
 VERSION = 1
 MAGIC = b"GT3W"
@@ -34,6 +44,7 @@ STATE = struct.Struct("<IffffIbbbB")       # ms, steer, throttle, brake, clutch,
 FFB = struct.Struct("<ffffffffBhh")        # speed, brake, abs, steer_force, jolt, traction,
                                            # understeer, oversteer, flags, spring, constant
 CAP_FFB, CAP_SHIFTER = 1, 2
+CMD_MAGIC = b"GT3C"      # local commands (wheel_cmd.py), accepted from this machine only
 
 # Button bit positions in the state packet (evdev code -> bit)
 BUTTON_BITS = {
@@ -56,8 +67,41 @@ def clamp(v, lo, hi):
     return lo if v < lo else hi if v > hi else v
 
 
+CENTER = 32768           # the wheel's raw straight-ahead value (re-centred by wheel_cmd.py center)
+
+
+def load_center():
+    global CENTER
+    try:
+        with open(os.path.expanduser(CENTER_FILE)) as f:
+            CENTER = int(clamp(int(f.read().strip()), 1000, 64535))
+        if CENTER != 32768:
+            log("using the saved centre:", CENTER)
+    except (OSError, ValueError):
+        CENTER = 32768
+
+
+def save_center(value):
+    global CENTER
+    CENTER = int(clamp(value, 1000, 64535))
+    path = os.path.expanduser(CENTER_FILE)
+    if CENTER == 32768:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+    else:
+        with open(path, "w") as f:
+            f.write(str(CENTER))
+
+
+def center_ff():
+    """The centre as the spring effect's centre (-32767..32767 over the whole range)."""
+    return int(clamp((CENTER - 32768) / 32768.0, -1.0, 1.0) * 32767)
+
+
 def norm_steer(raw):
-    return clamp((raw - 32768) / 32768.0, -1.0, 1.0)
+    return clamp((raw - CENTER) / 32768.0, -1.0, 1.0)
 
 
 def norm_pedal(raw):
@@ -132,15 +176,16 @@ class Ffb:
         push = const if INVERT_FORCE else -const
         sent = False
 
-        if spring != self.last["spring"]:
+        spring_key = (spring, center_ff())
+        if spring_key != self.last["spring"]:
             if spring > 0:
-                c = ff.Condition(0x7FFF, 0x7FFF, spring, spring, 0, 0)
+                c = ff.Condition(0x7FFF, 0x7FFF, spring, spring, 0, center_ff())
                 self._play("spring", ff.Effect(
                     ecodes.FF_SPRING, -1, 0, ff.Trigger(0, 0), ff.Replay(0, 0),
                     ff.EffectType(ff_condition_effect=(c, c))))
             else:
                 self._stop_one("spring")
-            self.last["spring"] = spring
+            self.last["spring"] = spring_key
             sent = True
 
         if push != self.last["const"]:
@@ -168,6 +213,17 @@ class Ffb:
             self.last_sent = now
 
 
+def idle_forces(steer):
+    """The idle mode's spring and rumble for a steering position -1..1 (no game connected)."""
+    p = abs(steer)
+    if p < WARN_START or p >= WARN_STOP:
+        vib = 0.0
+    else:
+        t = clamp((p - WARN_START) / max(0.001, (0.99 - WARN_START)), 0.0, 1.0)
+        vib = WARN_SOFT + t * (WARN_STRONG - WARN_SOFT)
+    return int(clamp(IDLE_SPRING, 0.0, 1.0) * 32767), vib
+
+
 # ---------------------------------------------------------------- wheel + server
 def find_wheel():
     for path in list_devices():
@@ -185,6 +241,28 @@ def set_range(dev):
             log("wheel range set to", WHEEL_RANGE_DEGREES, "degrees")
         except OSError as e:
             log("could not set the wheel range:", e)
+
+
+def command(text, steer_raw, client):
+    """A local command from wheel_cmd.py; returns the answer shown there."""
+    half = WHEEL_RANGE_DEGREES / 2.0
+    if text == "center":
+        save_center(steer_raw)
+        log("new centre saved:", CENTER)
+        return "centre saved: this position is now straight ahead"
+    if text == "reset":
+        save_center(32768)
+        log("centre reset to the wheel's own")
+        return "centre reset to the wheel's own calibration"
+    if text == "status":
+        s = norm_steer(steer_raw)
+        side = "right" if s > 0 else "left" if s < 0 else ""
+        return ("steering %.0f%% %s (%.0f of %.0f degrees), %s, centre %s" % (
+            abs(s) * 100, side, abs(s) * half, half,
+            "game connected from %s" % client[0] if client else "no game connected (idle forces %s)" %
+            ("on" if IDLE_FORCES else "off"),
+            "the wheel's own" if CENTER == 32768 else "saved (%d)" % CENTER)).replace("  ", " ")
+    return "unknown command: %s (use center, reset or status)" % text
 
 
 def run(dev, sock):
@@ -238,6 +316,16 @@ def run(dev, sock):
                         data, addr = sock.recvfrom(512)
                     except BlockingIOError:
                         break
+                    if data[:4] == CMD_MAGIC:
+                        if addr[0] == "127.0.0.1":
+                            reply = command(data[4:].decode(errors="ignore").strip(), steer_raw, client)
+                            if reply.startswith("centre"):
+                                ffb.last["spring"] = None   # the spring's centre moved: send it again
+                            try:
+                                sock.sendto(reply.encode(), addr)
+                            except OSError:
+                                pass
+                        continue
                     if len(data) < HDR.size:
                         continue
                     magic, ver, typ, _s = HDR.unpack_from(data)
@@ -248,6 +336,7 @@ def run(dev, sock):
                     if typ == T_HELLO:
                         if client != addr:
                             log("game connected from", addr[0], "(its protocol version %d)" % ver)
+                            ffb.stop()   # the idle forces end; the game's take over
                         client = addr
                         last_rx = now
                         send(addr, T_HELLO_ACK, ack)
@@ -280,6 +369,9 @@ def run(dev, sock):
                 if ffb_active and now - last_ffb > FFB_TIMEOUT:
                     ffb.stop()
                     ffb_active = False
+                if client is None and IDLE_FORCES:
+                    spring, vib = idle_forces(norm_steer(steer_raw))
+                    ffb.apply(spring, 0, vib, now)
                 if client:
                     send(client, T_STATE, STATE.pack(
                         int((now - t0) * 1000) & 0xFFFFFFFF,
@@ -293,6 +385,7 @@ def run(dev, sock):
 
 
 def main():
+    load_center()
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     sock.bind(("0.0.0.0", PORT))
