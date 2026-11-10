@@ -35,16 +35,8 @@ sudo apt install python3-evdev
 sudo python3 tools/netwheel/wheel_server.py
 ```
 
-The server sets the wheel's rotation (`WHEEL_RANGE_DEGREES`) through the driver's `range` file,
-which only root may write by default. To run it without sudo, allow that once, then unplug and
-replug the wheel's USB cable:
-
-```
-sudo tee /etc/udev/rules.d/99-wheel-range.rules > /dev/null <<'EOF'
-ACTION=="bind", SUBSYSTEM=="hid", DRIVER=="logitech-hidpp-device", RUN+="/bin/chmod a+w /sys%p/range"
-EOF
-sudo udevadm control --reload-rules
-```
+The wheel keeps its own rotation (900 degrees on the G920); the server scales the steering so the
+game's full lock is at `STEER_DEGREES` (lock-to-lock, default 360: 180 each way) and holds it past.
 
 `wheel_cmd.py` (center, reset, status, watch, buzz) talks to the running server. While no game is
 connected the server keeps a centring spring on and vibrates near full lock (`IDLE_*`, `WARN_*`).

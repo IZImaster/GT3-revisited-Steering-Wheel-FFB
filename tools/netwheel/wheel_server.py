@@ -19,7 +19,9 @@ PORT = 27920
 GAIN = 0.6               # overall wheel force on the Pi side, 0.0 .. 1.0
 INVERT_FORCE = False     # set True if the steering force pushes the wrong way
 PEDALS_REST_HIGH = True  # G920 pedals read 255 when released and 0 when pressed
-WHEEL_RANGE_DEGREES = 360      # lock-to-lock; GT3 steers full lock at the ends (its 2001 wheels turned ~200)
+WHEEL_RANGE_DEGREES = 900  # the wheel's own rotation, lock-to-lock (the G920's is 900; left as it is)
+STEER_DEGREES = 360        # how far you turn for the game's full lock, lock-to-lock (360 = 180 each way);
+                           # GT3's 2001 wheels turned ~200. Past it the game stays at full lock.
 STATE_HZ = 100           # wheel state packets per second while a game is connected
 FFB_TIMEOUT = 0.30       # seconds without a force packet before the wheel goes limp
 CLIENT_TIMEOUT = 3.0     # seconds without any packet before the game is forgotten
@@ -27,8 +29,8 @@ FFB_MAX_HZ = 60          # most force updates per second sent to the wheel
 
 # While no game is connected (idle):
 IDLE_FORCES = True       # False: the wheel stays limp while no game is connected
-IDLE_SPRING = 0.30       # centring force, 0.0 (none) .. 1.0 (the wheel's strongest spring)
-WARN_START = 0.90        # vibrate from this much of full lock (0.90 = 90%) ...
+IDLE_SPRING = 0.70       # centring force, 0.0 (none) .. 1.0 (the wheel's strongest spring)
+WARN_START = 0.83        # vibrate from this much of full lock (0.83 = 83%, of STEER_DEGREES) ...
 WARN_SOFT = 0.25         # ... this softly (0.0 .. 1.0 of the wheel's strongest vibration) ...
 WARN_STRONG = 0.60       # ... growing to this at 99% ...
 WARN_STOP = 0.995        # ... and nothing from here on (full lock), so it doesn't buzz against the stop
@@ -100,8 +102,15 @@ def center_ff():
     return int(clamp((CENTER - 32768) / 32768.0, -1.0, 1.0) * 32767)
 
 
-def norm_steer(raw):
+def wheel_pos(raw):
+    """Where the wheel is, -1..1 of its own rotation (WHEEL_RANGE_DEGREES)."""
     return clamp((raw - CENTER) / 32768.0, -1.0, 1.0)
+
+
+def norm_steer(raw):
+    """The game's steering, -1..1: full lock at STEER_DEGREES / 2 each way, held beyond."""
+    scale = WHEEL_RANGE_DEGREES / float(clamp(STEER_DEGREES, 30, WHEEL_RANGE_DEGREES))
+    return clamp(wheel_pos(raw) * scale, -1.0, 1.0)
 
 
 def norm_pedal(raw):
@@ -233,25 +242,9 @@ def find_wheel():
     return None
 
 
-def set_range(dev):
-    for path in glob.glob("/sys/class/input/%s/device/device/range" % dev.path.split("/")[-1]):
-        try:
-            with open(path, "w") as f:
-                f.write(str(WHEEL_RANGE_DEGREES))
-            log("wheel range set to", WHEEL_RANGE_DEGREES, "degrees")
-        except OSError as e:
-            log("could not set the wheel range:", e)
-            if isinstance(e, PermissionError):
-                log("  the wheel stays at its own range; allow setting it once with the udev rule "
-                    "in docs/NETWORK_WHEEL.md (Server side), or run the server with sudo")
-
-
-BUZZ = {"until": 0.0, "level": 0.0}   # wheel_cmd.py buzz: a test vibration
-
-
 def command(text, steer_raw, client):
     """A local command from wheel_cmd.py; returns the answer shown there."""
-    half = WHEEL_RANGE_DEGREES / 2.0
+    half = STEER_DEGREES / 2.0
     if text == "center":
         save_center(steer_raw)
         log("new centre saved:", CENTER)
@@ -273,8 +266,9 @@ def command(text, steer_raw, client):
     if text == "status":
         s = norm_steer(steer_raw)
         side = "right" if s > 0 else "left" if s < 0 else ""
-        return ("steering %.0f%% %s (%.0f of %.0f degrees), %s, centre %s" % (
-            abs(s) * 100, side, abs(s) * half, half,
+        deg = abs(wheel_pos(steer_raw)) * WHEEL_RANGE_DEGREES / 2.0
+        return ("steering %.0f%% %s (%.0f of %.0f degrees%s), %s, centre %s" % (
+            abs(s) * 100, side, deg, half, ", past full lock" if deg > half + 0.5 else "",
             "game connected from %s" % client[0] if client else "no game connected (idle forces %s)" %
             ("on" if IDLE_FORCES else "off"),
             "the wheel's own" if CENTER == 32768 else "saved (%d)" % CENTER)).replace("  ", " ")
@@ -282,7 +276,6 @@ def command(text, steer_raw, client):
 
 
 def run(dev, sock):
-    set_range(dev)
     ffb = Ffb(dev)
     ffb.setup()
     log("wheel ready:", dev.name, "- listening on UDP port", PORT)
@@ -297,7 +290,7 @@ def run(dev, sock):
     seq = 0
     t0 = time.monotonic()
     next_tick = t0
-    ack = ACK.pack(CAP_FFB | CAP_SHIFTER, WHEEL_RANGE_DEGREES, dev.name.encode()[:32])
+    ack = ACK.pack(CAP_FFB | CAP_SHIFTER, STEER_DEGREES, dev.name.encode()[:32])
 
     def send(addr, typ, payload):
         nonlocal seq
