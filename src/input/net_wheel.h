@@ -14,6 +14,7 @@
 //   port    = 27920
 //
 // The virtual wheel appears while the server answers and goes away when it stops (hot-plug).
+// Settings > Controls > Network wheel switches it and sets the host (InputManager::set_netwheel).
 
 #include <SDL3/SDL_joystick.h>
 
@@ -41,6 +42,10 @@ public:
     void poll(double dt);                          // once per frame: receive, keep alive, update the virtual wheel
     void send_force(const NetWheelForce& f);       // every frame while driving
     SDL_JoystickID joystick_id() const { return id_; }
+    bool connected() const { return joy_ != nullptr; }           // the virtual wheel is there
+    const std::string& device_name() const { return device_name_; }
+    std::string server_address() const;                          // the server's IPv4 once found, else ""
+    static bool valid_host(const std::string& host);             // auto (or empty), or an IPv4 address
 
 private:
     void attach(const std::string& name);

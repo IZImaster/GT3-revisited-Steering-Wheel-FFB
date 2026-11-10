@@ -10,7 +10,11 @@ reads the wheel and streams its state over UDP. The game shows it as a virtual S
 (`[ffb]`) work as for any wheel. The race's spring and steering force go back to the server, which
 plays them on the wheel. Wheel-specific code lives only in the server; other wheels can be added there.
 
-## Game side (`config.ini`)
+## Game side (Settings, or `config.ini`)
+
+In the game: Settings > Controls > Network wheel. Switch it on; Server address stays Auto unless the
+game doesn't find the server, then type its IPv4 address. Status shows whether the wheel is connected.
+Changes apply at once and are saved to `config.ini`:
 
 ```ini
 [netwheel]

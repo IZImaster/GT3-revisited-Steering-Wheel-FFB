@@ -107,6 +107,21 @@ bool NetWheel::start(const std::string& host, int port) {
     return true;
 }
 
+bool NetWheel::valid_host(const std::string& host) {
+    if (host.empty() || host == "auto") return true;
+    in_addr a{};
+    return inet_pton(AF_INET, host.c_str(), &a) == 1;
+}
+
+std::string NetWheel::server_address() const {
+    if (!have_ack_) return "";
+    sockaddr_in a;
+    std::memcpy(&a, target_, sizeof a);
+    char buf[INET_ADDRSTRLEN] = {};
+    if (!inet_ntop(AF_INET, &a.sin_addr, buf, sizeof buf)) return "";
+    return buf;
+}
+
 void NetWheel::send_packet(uint8_t type, const void* body, size_t n) {
     if (sock_ < 0) return;
     uint8_t buf[64];

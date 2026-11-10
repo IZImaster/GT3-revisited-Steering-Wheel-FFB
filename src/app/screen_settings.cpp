@@ -1306,6 +1306,31 @@ private:
             }
 #endif
         }
+        // [netwheel]: a wheel on another machine, such as a Raspberry Pi with a G920 (net_wheel.h).
+        heading("Network wheel");
+        toggle("Network wheel",
+               "A steering wheel plugged into another computer on your network (tools/netwheel/wheel_server.py), "
+               "used as if it were plugged in here, with force feedback.",
+               in.netwheel_enabled(), [a](bool v) {
+                   a->input().set_netwheel(v, a->input().netwheel_host());
+                   a->save_config();
+               });
+        if (in.netwheel_enabled()) {
+            const bool automatic = in.netwheel_host() == "auto";
+            action("Server address",
+                   "Auto: the game finds the server on your network. If it doesn't, type the server's address "
+                   "(like 192.168.1.50). Leave it empty for auto.",
+                   automatic ? "Auto" : in.netwheel_host(), [a, this] { begin_host(*a); })
+                .field = true;
+            if (!automatic)
+                action("Find the server automatically", "Back to Auto: the game looks for the server on your network.",
+                       "", [a] {
+                           a->input().set_netwheel(true, "auto");
+                           a->save_config();
+                       });
+            info("Status", in.netwheel_status(),
+                 "Connected: the wheel shows up as a controller (choose it under Player 1 if Auto picks another).");
+        }
         for (int p = 0; p < InputManager::kMaxPlayers; ++p) {
             heading(p == 0 ? "Player 1" : "Player 2 (split screen)");
             {
@@ -1929,6 +1954,7 @@ private:
     // typing (text_field_event), our keyboard in a headset.
     void begin_naming(App& app, int id, const std::string& name) {
         naming_.active = true;
+        naming_.host = false;
         naming_.id = id;
         naming_.text = name;
         naming_.blink = 0;
@@ -1938,13 +1964,39 @@ private:
 #endif
     }
 
+    // The network wheel's address, in the same box: auto, or the server's IPv4 address.
+    void begin_host(App& app) {
+        naming_.active = true;
+        naming_.host = true;
+        naming_.id = 0;
+        naming_.text = app.input().netwheel_host() == "auto" ? std::string() : app.input().netwheel_host();
+        naming_.blink = 0;
+        if (SDL_Window* w = app.window()) SDL_StartTextInput(w);
+#if GT3R_XR
+        if (app.xr()) naming_.keyboard.open("Wheel server address (empty: auto)", "OK", false);
+#endif
+    }
+
+    size_t naming_max() const { return naming_.host ? size_t(40) : size_t(race::CustomCamera::kMaxName); }
+
     void end_naming(App& app, bool keep) {
         naming_.active = false;
         naming_.keyboard.close();
         if (SDL_Window* w = app.window()) SDL_StopTextInput(w);
         app.menu().suppress(); // the keys typed are no menu input
         std::string name(trim(naming_.text));
-        if (name.size() > race::CustomCamera::kMaxName) name.resize(race::CustomCamera::kMaxName);
+        if (name.size() > naming_max()) name.resize(naming_max());
+        if (naming_.host) {
+            if (!keep) return;
+            if (!NetWheel::valid_host(name)) {
+                note_ = "\"" + name + "\" is not an address like 192.168.1.50 (nothing changed)";
+                note_left_ = 6;
+                return;
+            }
+            app.input().set_netwheel(app.input().netwheel_enabled(), name);
+            app.save_config();
+            return;
+        }
         if (!keep || name.empty()) return;
         std::vector<race::CustomCamera> cams = race::load_custom_cameras(app.config());
         for (race::CustomCamera& c : cams)
@@ -1973,7 +2025,7 @@ private:
         }
         if (const TextKeyboard::Result r = text_field_event(e, naming_.text, !keyboard); r != TextKeyboard::Result::None)
             end_naming(app, r == TextKeyboard::Result::Done);
-        if (naming_.text.size() > race::CustomCamera::kMaxName) naming_.text.resize(race::CustomCamera::kMaxName);
+        if (naming_.text.size() > naming_max()) naming_.text.resize(naming_max());
         if (naming_.text != before) naming_.blink = 0; // (the caret stays on while typing)
     }
 
@@ -1993,7 +2045,7 @@ private:
         ui.fill(0, 0, ui.width(), ui.height(), Color{0, 0, 0, 120});
         ui.fill_round(x, y, w, h, 6, colors::kPanel);
         ui.frame_round(x, y, w, h, 6, 1, colors::kAccent);
-        ui.text(x + 12, y + 10, "Camera name", colors::kAccent);
+        ui.text(x + 12, y + 10, n.host ? "Wheel server address (empty: auto)" : "Camera name", colors::kAccent);
         n.field = {x + 12, y + 26, w - 24, fh};
         ui.fill_round(n.field.x, n.field.y, n.field.w, n.field.h, 4, colors::kBackground);
         ui.frame_round(n.field.x, n.field.y, n.field.w, n.field.h, 4, 1.5f, colors::kAccent);
@@ -2460,7 +2512,7 @@ private:
         case Row::Kind::Binding:
             return r.enabled ? "Cross: rebind  Square: add  Select/Del: clear  Left/Right: column" + back : back.substr(4);
         default:
-            if (r.field) return "Cross: rename" + back;
+            if (r.field) return "Cross: edit" + back;
             return (r.remove ? "Cross: open    Square: remove" : "Cross: open") + back;
         }
     }
@@ -2612,8 +2664,9 @@ private:
         bool waiting = false, import = false;
         std::vector<race::CustomCamera> cams; // Export: what goes in the file
     } camera_file_;
-    struct Naming {             // typing a camera's name
+    struct Naming {             // typing a camera's name, or the network wheel's address
         bool active = false;
+        bool host = false;         // the network wheel's address ([netwheel] host)
         int id = 0;
         std::string text;
         double blink = 0;                  // the caret's clock (s)

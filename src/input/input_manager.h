@@ -160,6 +160,13 @@ public:
     const ForceFeedbackConfig& ffb_config() const { return ffb_.config(); }
     void set_ffb_config(const ForceFeedbackConfig& c) { ffb_.configure(c); }
 
+    // [netwheel] enabled / host / port: a wheel on another machine (net_wheel.h). set_netwheel restarts
+    // it at once (host: "auto" or an IPv4 address); netwheel_status is a line for Settings.
+    bool netwheel_enabled() const { return netwheel_on_; }
+    const std::string& netwheel_host() const { return netwheel_host_; }
+    void set_netwheel(bool enabled, const std::string& host);
+    std::string netwheel_status() const;
+
     // [input] xbox_driver (Windows): "rawinput", the default, reads Xbox pads through SDL's RAWINPUT driver,
     // which plays their impulse triggers (through Windows.Gaming.Input, once a button was pressed); "xinput"
     // through XInput, which has no trigger motors. SDL takes it at start: App::init reads xbox_rawinput(cfg)
@@ -387,6 +394,10 @@ private:
     SDL_Sensor* device_accel_ = nullptr; // phone/tablet accelerometer
     ForceFeedback ffb_;
     std::unique_ptr<NetWheel> netwheel_; // [netwheel]: a wheel on another machine (net_wheel.h)
+    bool netwheel_on_ = false;
+    std::string netwheel_host_ = "auto";
+    int netwheel_port_ = 27920;
+    void start_netwheel(); // netwheel_ from the three above
     double time_ = 0;
     bool phone_vibration_ = false;
     bool background_ = false;      // [input] background
