@@ -33,7 +33,9 @@ IDLE_SPRING = 0.70       # centring force, 0.0 (none) .. 1.0 (the wheel's strong
 WARN_START = 0.83        # vibrate from this much of full lock (0.83 = 83%, of STEER_DEGREES) ...
 WARN_SOFT = 0.25         # ... this softly (0.0 .. 1.0 of the wheel's strongest vibration) ...
 WARN_STRONG = 0.60       # ... growing to this at 99% ...
-WARN_STOP = 0.995        # ... and nothing from here on (full lock), so it doesn't buzz against the stop
+                         # Past full lock (STEER_DEGREES) it keeps vibrating at WARN_STRONG: turn back.
+WARN_STOP = 0.995        # Quiet again at the wheel's own end stop (this much of WHEEL_RANGE_DEGREES),
+                         # so it doesn't buzz against the mechanism
 CENTER_FILE = "~/.wheel_center"  # the straight-ahead position saved by: python3 wheel_cmd.py center
 
 # ---------------------------------------------------------------- protocol
@@ -107,10 +109,14 @@ def wheel_pos(raw):
     return clamp((raw - CENTER) / 32768.0, -1.0, 1.0)
 
 
+def norm_steer_unclamped(raw):
+    """Steering as a part of the game's full lock (STEER_DEGREES / 2 each way); above 1 past it."""
+    return wheel_pos(raw) * WHEEL_RANGE_DEGREES / float(clamp(STEER_DEGREES, 30, WHEEL_RANGE_DEGREES))
+
+
 def norm_steer(raw):
     """The game's steering, -1..1: full lock at STEER_DEGREES / 2 each way, held beyond."""
-    scale = WHEEL_RANGE_DEGREES / float(clamp(STEER_DEGREES, 30, WHEEL_RANGE_DEGREES))
-    return clamp(wheel_pos(raw) * scale, -1.0, 1.0)
+    return clamp(norm_steer_unclamped(raw), -1.0, 1.0)
 
 
 def norm_pedal(raw):
@@ -222,11 +228,14 @@ class Ffb:
             self.last_sent = now
 
 
-def idle_forces(steer):
-    """The idle mode's spring and rumble for a steering position -1..1 (no game connected)."""
-    p = abs(steer)
-    if p < WARN_START or p >= WARN_STOP:
+def idle_forces(raw):
+    """The idle mode's spring and vibration for the wheel's raw position (no game connected)."""
+    end = abs(wheel_pos(raw))              # of the wheel's own rotation
+    p = abs(norm_steer_unclamped(raw))     # of the game's full lock (above 1: past it)
+    if p < WARN_START or end >= WARN_STOP:
         vib = 0.0
+    elif p >= 1.0:
+        vib = WARN_STRONG
     else:
         t = clamp((p - WARN_START) / max(0.001, (0.99 - WARN_START)), 0.0, 1.0)
         vib = WARN_SOFT + t * (WARN_STRONG - WARN_SOFT)
@@ -382,7 +391,7 @@ def run(dev, sock):
                     ffb.stop()
                     ffb_active = False
                 if client is None and IDLE_FORCES:
-                    spring, vib = idle_forces(norm_steer(steer_raw))
+                    spring, vib = idle_forces(steer_raw)
                     if now < BUZZ["until"]:
                         vib = BUZZ["level"]
                     ffb.apply(spring, 0, vib, now, 32767)
