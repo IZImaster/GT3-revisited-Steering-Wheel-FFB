@@ -30,12 +30,11 @@ FFB_MAX_HZ = 60          # most force updates per second sent to the wheel
 # While no game is connected (idle):
 IDLE_FORCES = True       # False: the wheel stays limp while no game is connected
 IDLE_SPRING = 0.70       # centring force, 0.0 (none) .. 1.0 (the wheel's strongest spring)
-WARN_START = 0.83        # vibrate from this much of full lock (0.83 = 83%, of STEER_DEGREES) ...
+# The warning vibration follows the real wheel (WHEEL_RANGE_DEGREES), not the game's STEER_DEGREES:
+WARN_START = 0.83        # vibrate from this much of the wheel's own rotation (0.83 = 83%) ...
 WARN_SOFT = 0.25         # ... this softly (0.0 .. 1.0 of the wheel's strongest vibration) ...
 WARN_STRONG = 0.60       # ... growing to this at 99% ...
-                         # Past full lock (STEER_DEGREES) it keeps vibrating at WARN_STRONG: turn back.
-WARN_STOP = 0.995        # Quiet again at the wheel's own end stop (this much of WHEEL_RANGE_DEGREES),
-                         # so it doesn't buzz against the mechanism
+WARN_STOP = 0.995        # ... and nothing at the end stop, so it doesn't buzz against the mechanism
 CENTER_FILE = "~/.wheel_center"  # the straight-ahead position saved by: python3 wheel_cmd.py center
 
 # ---------------------------------------------------------------- protocol
@@ -230,12 +229,9 @@ class Ffb:
 
 def idle_forces(raw):
     """The idle mode's spring and vibration for the wheel's raw position (no game connected)."""
-    end = abs(wheel_pos(raw))              # of the wheel's own rotation
-    p = abs(norm_steer_unclamped(raw))     # of the game's full lock (above 1: past it)
-    if p < WARN_START or end >= WARN_STOP:
+    p = abs(wheel_pos(raw))   # of the real wheel's rotation
+    if p < WARN_START or p >= WARN_STOP:
         vib = 0.0
-    elif p >= 1.0:
-        vib = WARN_STRONG
     else:
         t = clamp((p - WARN_START) / max(0.001, (0.99 - WARN_START)), 0.0, 1.0)
         vib = WARN_SOFT + t * (WARN_STRONG - WARN_SOFT)
@@ -256,7 +252,6 @@ BUZZ = {"until": 0.0, "level": 0.0}   # wheel_cmd.py buzz: a test vibration
 
 def command(text, steer_raw, client):
     """A local command from wheel_cmd.py; returns the answer shown there."""
-    half = STEER_DEGREES / 2.0
     if text == "center":
         save_center(steer_raw)
         log("new centre saved:", CENTER)
@@ -278,9 +273,10 @@ def command(text, steer_raw, client):
     if text == "status":
         s = norm_steer(steer_raw)
         side = "right" if s > 0 else "left" if s < 0 else ""
-        deg = abs(wheel_pos(steer_raw)) * WHEEL_RANGE_DEGREES / 2.0
-        return ("steering %.0f%% %s (%.0f of %.0f degrees%s), %s, centre %s" % (
-            abs(s) * 100, side, deg, half, ", past full lock" if deg > half + 0.5 else "",
+        wp = abs(wheel_pos(steer_raw))
+        deg = wp * WHEEL_RANGE_DEGREES / 2.0
+        return ("wheel %.0f%% %s (%.0f of %.0f degrees), game steering %.0f%%, %s, centre %s" % (
+            wp * 100, side, deg, WHEEL_RANGE_DEGREES / 2.0, abs(s) * 100,
             "game connected from %s" % client[0] if client else "no game connected (idle forces %s)" %
             ("on" if IDLE_FORCES else "off"),
             "the wheel's own" if CENTER == 32768 else "saved (%d)" % CENTER)).replace("  ", " ")
