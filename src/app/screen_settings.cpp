@@ -959,6 +959,29 @@ private:
                    n.screen_distance = v;
                    apply(n);
                });
+        // 3D replays on the screen (screen_race_vr.cpp, render_stereo_screen).
+        toggle("3D replays", "Replays in 3D on the virtual screen, like a 3D film: the screen stays put, "
+               "so cuts and TV cameras are as comfortable as flat ones.",
+               s.replay_3d, [apply, s](bool v) {
+                   xr::Settings n = s;
+                   n.replay_3d = v;
+                   apply(n);
+               });
+        if (s.replay_3d) {
+            slider("3D depth", "How strong the 3D effect is. Lower it if your eyes tire.", s.replay_depth, 0.1f, 1.0f,
+                   0.05f, percent(s.replay_depth), [apply, s](float v) {
+                       xr::Settings n = s;
+                       n.replay_depth = v;
+                       apply(n);
+                   });
+            choice("3D picture rate", "New pictures every second (half) or third (third) frame of the headset; "
+                   "the screen follows your head every frame either way.",
+                   {"Half", "Third"}, s.replay_3d_rate == 3 ? 1 : 0, [apply, s](int i) {
+                       xr::Settings n = s;
+                       n.replay_3d_rate = i == 1 ? 3 : 2;
+                       apply(n);
+                   });
+        }
         slider("HUD size", "Width of the race display panel in front of the car.", s.hud_width, 0.6f, 3.0f, 0.1f,
                metres(s.hud_width), [apply, s](float v) {
                    xr::Settings n = s;

@@ -132,8 +132,17 @@ public:
     void update(const sim::VehicleState& s, const sim::VehicleSetup& setup, const PadState& pad, double dt);
     bool handle_event(const SDL_Event& e);
 
-    render::Vec3 eye() const { return eye_; }
-    render::Mat4 view() const { return view_; }
+    // (3D replays on the VR screen: the eye of set_stereo, else the camera's own.)
+    render::Vec3 eye() const {
+        if (stereo_sep_ == 0) return eye_;
+        const render::Vec3 right{view_.at(0, 0), view_.at(0, 1), view_.at(0, 2)};
+        return eye_ + right * stereo_sep_;
+    }
+    render::Mat4 view() const { return stereo_sep_ == 0 ? view_ : render::translate({-stereo_sep_, 0, 0}) * view_; }
+    // One eye of a 3D picture (3D replays on the VR screen): the camera `sep` metres to its right
+    // (negative: left), its picture moved `ndc` (x, normalized device units) so that what is at
+    // the aim's distance stays at the screen's depth. set_stereo(0, 0): the camera's own view.
+    void set_stereo(float sep, float ndc) { stereo_sep_ = sep, stereo_ndc_ = ndc; }
     // GT3 shows its 640 x 448 frame at 4:3 (its 16:9 option scales x by 0.75), so a picture
     // `aspect` wide per unit of height takes a frustum aspect x kPixelAspect wide: the
     // projection and every overlay placed with it (frustum()).
@@ -253,6 +262,7 @@ private:
 
     CameraMode mode_ = CameraMode::Bumper; // GT3's default view: in-car (both halves in 2P)
     render::Vec3 eye_{0, 2, 5};
+    float stereo_sep_ = 0, stereo_ndc_ = 0;
     render::Mat4 view_;
     float fovy_ = 0.8f;
     bool snapped_ = false;

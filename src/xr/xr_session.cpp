@@ -89,6 +89,9 @@ Settings Settings::load(const IniDocument& cfg) {
     if (auto v = number(cfg, "hud_drop")) s.hud_drop = clampf(*v, -1.0f, 1.0f);
     if (auto v = number(cfg, "seat_forward")) s.seat_forward = clampf(*v, -0.6f, 0.6f);
     if (auto v = number(cfg, "seat_height")) s.seat_height = clampf(*v, -0.6f, 0.6f);
+    s.replay_3d = flag(cfg, "replay_3d", s.replay_3d);
+    if (auto v = number(cfg, "replay_depth")) s.replay_depth = clampf(*v, 0.0f, 1.0f);
+    if (auto v = number(cfg, "replay_3d_rate")) s.replay_3d_rate = int(clampf(*v, 2, 3));
     if (auto v = number(cfg, "refresh")) s.refresh_hz = int(clampf(*v, 60, 144));
     if (auto v = number(cfg, "resolution")) s.eye_scale = clampf(*v, 0.5f, 1.5f);
     return s;
@@ -98,6 +101,9 @@ void Settings::save(IniDocument& cfg) const {
     cfg.set("vr", "stereo", stereo ? "on" : "off");
     cfg.set("vr", "level_horizon", level_horizon ? "on" : "off");
     cfg.set("vr", "car_body", show_car ? "on" : "off");
+    cfg.set("vr", "replay_3d", replay_3d ? "on" : "off");
+    cfg.set("vr", "replay_depth", fmt(replay_depth));
+    cfg.set("vr", "replay_3d_rate", std::to_string(replay_3d_rate));
     cfg.set("vr", "steering", wheel ? "wheel" : "stick");
     cfg.set("vr", "wheel_degrees", std::to_string(wheel_degrees));
     cfg.set("vr", "screen_distance", fmt(screen_distance));
@@ -572,6 +578,12 @@ std::unique_ptr<Session> Session::create(SDL_GPUDevice* device, SDL_Renderer* re
         return nullptr;
     }
     SDL_SetTextureBlendMode(s->canvas_, SDL_BLENDMODE_NONE);
+    // The right eye's screen for 3D replays (none: they stay flat).
+    if (x.make_chain(x.quad_r, s->canvas_w_, s->canvas_h_)) {
+        s->canvas_r_ = SDL_CreateTexture(renderer, x.canvas_format, SDL_TEXTUREACCESS_TARGET, s->canvas_w_, s->canvas_h_);
+        if (s->canvas_r_) SDL_SetTextureBlendMode(s->canvas_r_, SDL_BLENDMODE_NONE);
+        else LOG_WARN("VR: right screen canvas: %s", SDL_GetError());
+    }
 
     if (x.xrEnumerateDisplayRefreshRatesFB) {
         u32 n = 0;
@@ -597,8 +609,10 @@ Session::~Session() {
     for (Eye& e : eyes_)
         if (e.canvas) SDL_DestroyTexture(e.canvas);
     if (canvas_) SDL_DestroyTexture(canvas_);
+    if (canvas_r_) SDL_DestroyTexture(canvas_r_);
     for (Chain& c : x.eyes) x.release_chain(c);
     x.release_chain(x.quad);
+    if (x.quad_r.handle) x.release_chain(x.quad_r);
     for (XrSpace* sp : {&x.local, &x.base_local, &x.view_space})
         if (*sp) x.xrDestroySpace(*sp), *sp = XR_NULL_HANDLE;
     if (x.session) x.xrDestroySession(x.session); // (allowed in any state)
@@ -692,6 +706,7 @@ void Session::poll() {
 bool Session::begin_frame() {
     Impl& x = *impl_;
     stereo_ = false;
+    stereo_screen_ = false;
     if (!x.running) return false;
     static const bool timing = [] { // (read late: Android's args.txt --env sets it after startup)
         const char* t = SDL_getenv("GT3R_VR_TIMING");
@@ -770,6 +785,10 @@ void Session::end_frame() {
     if (x.timing.on && x.timing.last_wait_end) x.timing.app += double(t0 - x.timing.last_wait_end) / 1e6;
     const bool stereo = stereo_ && eyes_valid_;
     hud_panel_ = stereo; // where the canvas shows (the pointer aims there next frame)
+    // A 3D screen: both eyes' pictures of the screen, or (not fresh) the last ones kept.
+    const bool screen3d = stereo_screen_ && !stereo && canvas_r_ && x.quad_r.handle && (screen_fresh_ || screen_r_ready_);
+    const bool copy_screen = !screen3d || screen_fresh_;
+    if (!screen3d) screen_r_ready_ = false;
 
     auto mirror = [&](SDL_GPUCommandBuffer* cmd) {
         if (x.mirror)
@@ -782,13 +801,15 @@ void Session::end_frame() {
         xr_init<XrCompositionLayerProjectionView>(XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW)};
     auto proj = xr_init<XrCompositionLayerProjection>(XR_TYPE_COMPOSITION_LAYER_PROJECTION);
     auto quad = xr_init<XrCompositionLayerQuad>(XR_TYPE_COMPOSITION_LAYER_QUAD);
-    const XrCompositionLayerBaseHeader* layers[2] = {};
+    auto quad_right = xr_init<XrCompositionLayerQuad>(XR_TYPE_COMPOSITION_LAYER_QUAD);
+    const XrCompositionLayerBaseHeader* layers[3] = {};
     u32 layer_count = 0;
 
     if (x.frame.shouldRender) {
         // Acquire the images, copy the canvases in, release them once the copy is submitted.
         std::vector<std::pair<Chain*, SDL_Texture*>> jobs;
-        jobs.push_back({&x.quad, canvas_});
+        if (copy_screen) jobs.push_back({&x.quad, canvas_});
+        if (screen3d && screen_fresh_) jobs.push_back({&x.quad_r, canvas_r_});
         if (stereo)
             for (int i = 0; i < 2; ++i) jobs.push_back({&x.eyes[i], eyes_[i].canvas});
         for (auto& [c, tex] : jobs) {
@@ -804,7 +825,7 @@ void Session::end_frame() {
             }
         }
         t1 = SDL_GetTicksNS();
-        SDL_GPUCommandBuffer* cmd = SDL_AcquireGPUCommandBuffer(x.device);
+        SDL_GPUCommandBuffer* cmd = jobs.empty() ? nullptr : SDL_AcquireGPUCommandBuffer(x.device);
         if (cmd) {
             for (auto& [c, tex] : jobs) {
                 if (!c->held || !tex) continue;
@@ -828,6 +849,7 @@ void Session::end_frame() {
             SDL_SubmitGPUCommandBuffer(cmd);
         }
         t2 = SDL_GetTicksNS();
+        if (screen3d && screen_fresh_ && x.quad_r.held) screen_r_ready_ = true;
         bool ok = true;
         for (auto& [c, tex] : jobs) {
             if (!c->held) {
@@ -839,7 +861,7 @@ void Session::end_frame() {
             c->held = false;
         }
 
-        if (ok && cmd) {
+        if (ok && (cmd || jobs.empty())) {
             const float aspect = float(canvas_h_) / float(canvas_w_);
             quad.space = x.local;
             quad.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
@@ -868,6 +890,14 @@ void Session::end_frame() {
                 quad.size = {settings_.screen_width, settings_.screen_width * aspect};
             }
             layers[layer_count++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&quad);
+            if (screen3d) { // the same screen, the left eye's picture to the left eye, the right's to the right
+                quad.eyeVisibility = XR_EYE_VISIBILITY_LEFT;
+                quad_right = quad;
+                quad_right.eyeVisibility = XR_EYE_VISIBILITY_RIGHT;
+                quad_right.subImage.swapchain = x.quad_r.handle;
+                quad_right.subImage.imageRect = {{0, 0}, {x.quad_r.w, x.quad_r.h}};
+                layers[layer_count++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&quad_right);
+            }
         }
     } else if (x.mirror) { // the headset isn't showing the game: the window still does
         if (SDL_GPUCommandBuffer* cmd = SDL_AcquireGPUCommandBuffer(x.device)) {

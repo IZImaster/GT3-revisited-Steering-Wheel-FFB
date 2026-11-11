@@ -4,7 +4,7 @@
 // turning with the car (or with its heading only, [vr] level_horizon); in the chase views at
 // the chase camera, level, turning with its lagged heading. Each eye is that placement times
 // the eye's tracked pose. Replays, the pre-race shot, 2P split screen and the debug cameras
-// stay on the virtual screen.
+// stay on the virtual screen; replays there in 3D with [vr] replay_3d (render_stereo_screen).
 // (Race screen code map: docs/dev/RACE.md.)
 
 #include "app/screen_race_impl.h"
@@ -120,6 +120,77 @@ void RaceScreen::render_vr_eyes(App& app, Ui& ui, const render::DrawOptions& o) 
     if (camera_.shows_mirror())
         draw_mirror(app, ui, SDL_FRect{0, 0, ui.width(), ui.height()}, o, false, false);
     x.submit_stereo();
+}
+
+bool RaceScreen::stereo_screen(App& app) const {
+    const xr::Session* x = app.xr();
+    return x && x->settings().replay_3d && x->canvas_right() && replaying_ && !attract_ && !quick_ && !logger_mode_ &&
+           app.gpu() && course_scene_;
+}
+
+// 3D replays on the virtual screen: as a 3D film, each eye sees its own picture of the screen,
+// the replay drawn from two cameras side by side. The screen itself stays where it is, so cuts,
+// pans and the TV cameras are as comfortable as flat; the headset places it for the head every
+// frame, while new pictures come every replay_3d_rate-th frame (the same drawing work per
+// second as the flat replay: two pictures every other frame).
+//
+// The depth: what is at the camera's aim (CameraRig::focus: the followed car) stays at the
+// screen's depth, the distance behind it; the far distance's two pictures are replay_depth x the
+// eyes' distance (6.3 cm) apart on the screen, so it never needs the eyes to look outwards.
+void RaceScreen::render_stereo_screen(App& app, Ui& ui) {
+    xr::Session& x = *app.xr();
+    const xr::Settings& st = x.settings();
+    const unsigned every = unsigned(std::clamp(st.replay_3d_rate, 2, 3));
+    const bool fresh = !x.stereo_screen_ready() || stereo_frame_ % every == 0;
+    ++stereo_frame_;
+    if (!fresh) { // the last pictures stay on the screen
+        x.submit_stereo_screen(false);
+        return;
+    }
+    SDL_Renderer* r = ui.renderer();
+    SDL_Texture* left = SDL_GetRenderTarget(r);
+    int lw = 0, lh = 0;
+    SDL_RendererLogicalPresentation mode = SDL_LOGICAL_PRESENTATION_DISABLED;
+    SDL_GetRenderLogicalPresentation(r, &lw, &lh, &mode);
+
+    // The pictures' shape as render_drive lays them out (1P, the 2P halves, the original's 4:3 frame).
+    const float W = ui.width(), H = ui.height();
+    const bool split = two_player_ && field_ && field_->has_second() && !(replaying_ && !replay_settings_.split);
+    float aspect = W / H, width_share = 1;
+    if (split) {
+        if (split_horizontal(app)) aspect = W / (H / 2);
+        else aspect = (W / 2) / (8 * H / 11), width_share = 0.5f;
+    } else if (original_res_) {
+        aspect = 4.0f / 3.0f, width_share = H * 4 / 3 / W;
+    }
+    // The far distance's disparity across a picture (normalized device units: 2 = its width).
+    const float disparity = std::clamp(st.replay_depth, 0.0f, 1.0f) * 2 * 0.063f / std::max(0.4f, st.screen_width * width_share);
+    auto set_eye = [&](CameraRig& c, float side) { // side: +1 right eye, -1 left, 0 off
+        if (side == 0 || disparity <= 0) return c.set_stereo(0, 0);
+        const float focus = std::clamp(c.focus(), 2.0f, 300.0f);
+        const float p00 = 1.0f / (std::tan(c.fovy() / 2) * aspect * CameraRig::kPixelAspect);
+        const float sep = disparity * focus / p00; // metres between the two cameras
+        c.set_stereo(side * sep / 2, side * disparity / 2);
+    };
+
+    // The right eye into its own canvas (with the screen canvas's layout), its own views (their
+    // trails and dissolves keep their own pictures); then the left eye into the screen's canvas.
+    const bool snapshot = dissolve_.snapshot;
+    SDL_SetRenderTarget(r, x.canvas_right());
+    SDL_SetRenderLogicalPresentation(r, lw, lh, mode);
+    ui.clear();
+    std::swap(view_, stereo_view_);
+    std::swap(view2_, stereo_view2_);
+    set_eye(camera_, 1), set_eye(camera2_, 1);
+    render_drive(app, ui);
+    std::swap(view_, stereo_view_);
+    std::swap(view2_, stereo_view2_);
+    dissolve_.snapshot = snapshot;
+    SDL_SetRenderTarget(r, left);
+    set_eye(camera_, -1), set_eye(camera2_, -1);
+    render_drive(app, ui);
+    set_eye(camera_, 0), set_eye(camera2_, 0);
+    x.submit_stereo_screen(true);
 }
 
 } // namespace gt3r::race_screen

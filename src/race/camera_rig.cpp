@@ -570,7 +570,8 @@ CameraCar CameraRig::camera_car(const sim::VehicleState& s, const sim::VehicleSe
 }
 
 render::Mat4 CameraRig::projection(float aspect) const {
-    return render::perspective(fovy_, aspect * kPixelAspect, near_plane, far_plane);
+    const render::Mat4 p = render::perspective(fovy_, aspect * kPixelAspect, near_plane, far_plane);
+    return stereo_ndc_ == 0 ? p : render::translate({stereo_ndc_, 0, 0}) * p; // (clip x += ndc w)
 }
 
 } // namespace gt3r::race

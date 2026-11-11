@@ -111,7 +111,7 @@ struct Session::Impl {
     SDL_GPUGraphicsPipeline* mirror_panel = nullptr; // the HUD over the eye
     SDL_GPUSampler* mirror_sampler = nullptr;
     SDL_PixelFormat canvas_format = SDL_PIXELFORMAT_ABGR8888; // = GpuContext::kColorFormat
-    Chain eyes[2], quad;
+    Chain eyes[2], quad, quad_r; // quad_r: the right eye's screen (3D screen frames)
     XrFrameState frame = xr_init<XrFrameState>(XR_TYPE_FRAME_STATE);
     bool frame_open = false;
     XrView views[2] = {xr_init<XrView>(XR_TYPE_VIEW), xr_init<XrView>(XR_TYPE_VIEW)};

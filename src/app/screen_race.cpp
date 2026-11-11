@@ -185,8 +185,16 @@ void RaceScreen::render(App& app, Ui& ui) {
         ui.footer("Press any button to return");
         return;
     }
-    if (stage_ == Stage::Drive) render_drive(app, ui);
-    else if ((from_menu_ || online_) && error_.empty()) render_loading(app, ui);
+    if (stage_ == Stage::Drive) {
+#if GT3R_XR
+        if (stereo_screen(app)) {
+            render_stereo_screen(app, ui);
+            return;
+        }
+        stereo_frame_ = 0;
+#endif
+        render_drive(app, ui);
+    } else if ((from_menu_ || online_) && error_.empty()) render_loading(app, ui);
     else render_select(app, ui);
 }
 

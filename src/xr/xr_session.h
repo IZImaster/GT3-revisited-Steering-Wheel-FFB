@@ -72,6 +72,12 @@ struct Settings {
     float hud_distance = 1.3f, hud_width = 1.5f;       // the race HUD panel in front of the car
     float hud_drop = 0.12f;                            // HUD panel centre below eye level
     float seat_forward = 0, seat_height = 0;           // in-car views: from the car's camera (metres)
+    // Replays in 3D on the virtual screen (replay_3d = on): each eye its own picture, as a 3D
+    // film; replay_depth 0..1 (1: the far distance as far apart as the eyes); every
+    // replay_3d_rate-th frame drawn (2 or 3; the screen itself follows the head every frame).
+    bool replay_3d = false;
+    float replay_depth = 0.5f;
+    int replay_3d_rate = 2;
     int refresh_hz = 90;      // refresh = 72 | 80 | 90 | 120 (what the headset offers)
     float eye_scale = 1.0f;   // resolution = 0.7 .. 1.3 of the headset's recommended size
     static Settings load(const IniDocument& cfg);
@@ -137,6 +143,13 @@ public:
     // A stereo frame this frame: eyes drawn into eye(i).canvas, the canvas holds the HUD over a
     // transparent background. Call before end_frame(); otherwise the canvas is the screen.
     void submit_stereo() { stereo_ = true; }
+    // A 3D screen this frame (Settings::replay_3d): canvas() is the left eye's picture of the
+    // screen, canvas_right() the right eye's. `fresh` = false: no new pictures this frame, the
+    // screen keeps showing the last ones (still placed for this frame's head pose).
+    SDL_Texture* canvas_right() const { return canvas_r_; }
+    void submit_stereo_screen(bool fresh) { stereo_screen_ = true, screen_fresh_ = fresh; }
+    // The right eye's screen has a picture (a frame may keep the last ones).
+    bool stereo_screen_ready() const { return screen_r_ready_; }
     bool stereo_submitted() const { return stereo_; }
     bool eyes_valid() const { return eyes_valid_; } // the eye poses of this frame are tracked
     const Eye& eye(int i) const { return eyes_[i]; }
@@ -176,6 +189,8 @@ private:
     Eye eyes_[2];
     bool eyes_valid_ = false;
     bool stereo_ = false;
+    SDL_Texture* canvas_r_ = nullptr;
+    bool stereo_screen_ = false, screen_fresh_ = true, screen_r_ready_ = false;
     bool hud_panel_ = false; // the last frame showed the canvas as the race's HUD panel (not the screen)
     bool pointer_on_ = false, pointer_pressed_ = false;
     float pointer_u_ = 0, pointer_v_ = 0;

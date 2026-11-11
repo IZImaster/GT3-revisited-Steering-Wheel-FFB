@@ -350,6 +350,10 @@ private:
     bool vr_stereo(App& app, bool split) const;
     render::Mat4 vr_base(const xr::Settings& st) const; // the seated space's origin -> world
     void render_vr_eyes(App& app, Ui& ui, const render::DrawOptions& o);
+    // 3D replays on the VR screen ([vr] replay_3d): the replay drawn once per eye, each eye's
+    // picture of the screen to that eye, every replay_3d_rate-th frame.
+    bool stereo_screen(App& app) const;
+    void render_stereo_screen(App& app, Ui& ui);
 #endif
 
     // In-race pop-ups (screen_race_events.cpp): the event displays fed from the lap timers'
@@ -1032,6 +1036,9 @@ private:
     std::unique_ptr<render::View3D> mirror_view_, mirror_view2_;
 #if GT3R_XR
     std::unique_ptr<render::View3D> vr_views_[2]; // the eyes (screen_race_vr.cpp)
+    // 3D replays: the right eye's views (view_ and view2_ draw the left eye's).
+    std::unique_ptr<render::View3D> stereo_view_, stereo_view2_;
+    unsigned stereo_frame_ = 0;
 #endif
     std::vector<std::unique_ptr<render::View3D>> icon_views_; // 2P results panel car pictures
     std::unique_ptr<CarVisual> car2_visual_;
