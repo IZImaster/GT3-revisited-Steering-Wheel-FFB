@@ -33,7 +33,7 @@ using netxwheel::Client;
 
 namespace {
 
-ByteSpan text(const std::string& s) { return ByteSpan(reinterpret_cast<const u8*>(s.data()), s.size()); }
+ByteSpan span_of(const std::string& s) { return ByteSpan(reinterpret_cast<const u8*>(s.data()), s.size()); }
 
 // A NetXWheel server with one wheel, on a loopback port, answered by pump().
 struct MiniServer {
@@ -78,7 +78,7 @@ struct MiniServer {
     void send(const sockaddr_in& to, const Bytes& b) {
         sendto(s, reinterpret_cast<const char*>(b.data()), int(b.size()), 0, reinterpret_cast<const sockaddr*>(&to), sizeof to);
     }
-    void send_json(const sockaddr_in& to, u8 type, const std::string& j) { send(to, Client::packet(type, text(j), 0, 0, nullptr)); }
+    void send_json(const sockaddr_in& to, u8 type, const std::string& j) { send(to, Client::packet(type, span_of(j), 0, 0, nullptr)); }
 
     void pump() {
         for (;;) {
@@ -122,8 +122,8 @@ struct MiniServer {
                                             ",\"wheel\":{\"index\":1,\"vendor\":\"Logitech\",\"model\":\"G920\",\"rotation\":900,"
                                             "\"steer_range\":360,\"ffb\":true,\"forces\":[\"constant\",\"spring\"],"
                                             "\"buttons\":[{\"bit\":0,\"role\":\"a\",\"label\":\"A\"}]}}";
-                    send(from, Client::packet(5, text(acc), session, ++seq, other.data()));
-                    send(from, Client::packet(5, text(acc), session, ++seq, session_key.data()));
+                    send(from, Client::packet(5, span_of(acc), session, ++seq, other.data()));
+                    send(from, Client::packet(5, span_of(acc), session, ++seq, session_key.data()));
                     client = from;
                     connected = true;
                 }
@@ -175,9 +175,9 @@ TEST(netxwheel_keys_match_the_server) {
     CHECK(Client::hex(Client::derive_key("", "", "00112233445566778899aabbccddeeff", 20000)) ==
           "b317b492cb5f37b8e84c539625093de8aa853ecc37e25c27c09a89b6b6cbc64d");
     // HMAC-SHA256 and PBKDF2 themselves (RFC 4231 case 2, RFC 7914 section 11).
-    CHECK(Client::hex(hmac_sha256(text("Jefe"), text("what do ya want for nothing?"))) ==
+    CHECK(Client::hex(hmac_sha256(span_of("Jefe"), span_of("what do ya want for nothing?"))) ==
           "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843");
-    const Bytes p = pbkdf2_sha256(text("passwd"), text("salt"), 1, 64);
+    const Bytes p = pbkdf2_sha256(span_of("passwd"), span_of("salt"), 1, 64);
     CHECK(Client::hex(p) == "55ac046e56e3089fec1691c22544b605f94185216dde0465e68b9d57c20dacbc"
                             "49ca9cccf179b645991664b39d77ef317c71b845b1e30bd509112041d3a19783");
 }
