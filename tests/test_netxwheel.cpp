@@ -14,6 +14,9 @@
 #include <thread>
 
 #if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX // (windows.h would make min and max macros)
+#endif
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #define T_CLOSE closesocket

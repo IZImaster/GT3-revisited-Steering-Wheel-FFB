@@ -12,6 +12,9 @@
 #include <random>
 
 #if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX // (windows.h would make min and max macros)
+#endif
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #define NXW_CLOSE closesocket
@@ -367,7 +370,7 @@ void Client::handle(const u8* d, size_t n, u32 ip, u16 port) {
             else if (reason == "nonce") start_handshake();
             else if (reason == "busy") {
                 lost(msg.empty() ? "the server is busy" : msg, true);
-                retry_at_ = now() + std::max(1.0, j["retry_ms"].number(2000) / 1000.0);
+                retry_at_ = now() + (std::max)(1.0, j["retry_ms"].number(2000) / 1000.0);
             } else lost(msg.empty() ? reason : msg, true);    // in_use, no_wheel: try again later
             return;
         }
