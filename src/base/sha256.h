@@ -1,6 +1,8 @@
 #pragma once
 
-// SHA-256 (FIPS 180-4), for content addressing (mod car packages, docs/dev/ONLINE.md).
+// SHA-256 (FIPS 180-4), for content addressing (mod car packages, docs/dev/ONLINE.md), and
+// HMAC-SHA256 (RFC 2104) / PBKDF2-HMAC-SHA256 (RFC 8018) for the network wheel's passwords
+// (input/netxwheel.h).
 
 #include "base/bytes.h"
 
@@ -25,5 +27,8 @@ private:
 
 std::array<u8, 32> sha256(ByteSpan data);
 std::string sha256_hex(ByteSpan data); // lower-case hex
+
+std::array<u8, 32> hmac_sha256(ByteSpan key, ByteSpan message);
+Bytes pbkdf2_sha256(ByteSpan password, ByteSpan salt, int iterations, size_t length);
 
 } // namespace gt3r

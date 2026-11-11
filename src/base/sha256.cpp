@@ -85,4 +85,41 @@ std::string sha256_hex(ByteSpan data) {
     return out;
 }
 
+std::array<u8, 32> hmac_sha256(ByteSpan key, ByteSpan message) {
+    std::array<u8, 64> k{};
+    if (key.size() > k.size()) {
+        const std::array<u8, 32> h = sha256(key);
+        std::copy(h.begin(), h.end(), k.begin());
+    } else {
+        std::copy(key.begin(), key.end(), k.begin());
+    }
+    std::array<u8, 64> pad;
+    Sha256 inner;
+    for (size_t i = 0; i < pad.size(); ++i) pad[i] = u8(k[i] ^ 0x36);
+    inner.update(pad);
+    inner.update(message);
+    const std::array<u8, 32> ih = inner.finish();
+    Sha256 outer;
+    for (size_t i = 0; i < pad.size(); ++i) pad[i] = u8(k[i] ^ 0x5c);
+    outer.update(pad);
+    outer.update(ih);
+    return outer.finish();
+}
+
+Bytes pbkdf2_sha256(ByteSpan password, ByteSpan salt, int iterations, size_t length) {
+    Bytes out;
+    for (u32 block = 1; out.size() < length; ++block) {
+        Bytes s(salt.begin(), salt.end());
+        for (int i = 3; i >= 0; --i) s.push_back(u8(block >> (8 * i)));
+        std::array<u8, 32> u = hmac_sha256(password, s), t = u;
+        for (int i = 1; i < iterations; ++i) {
+            u = hmac_sha256(password, u);
+            for (size_t j = 0; j < t.size(); ++j) t[j] ^= u[j];
+        }
+        out.insert(out.end(), t.begin(), t.end());
+    }
+    out.resize(length);
+    return out;
+}
+
 } // namespace gt3r

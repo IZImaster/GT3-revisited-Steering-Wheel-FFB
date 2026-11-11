@@ -160,11 +160,15 @@ public:
     const ForceFeedbackConfig& ffb_config() const { return ffb_.config(); }
     void set_ffb_config(const ForceFeedbackConfig& c) { ffb_.configure(c); }
 
-    // [netwheel] enabled / host / port: a wheel on another machine (net_wheel.h). set_netwheel restarts
-    // it at once (host: "auto" or an IPv4 address); netwheel_status is a line for Settings.
+    // [netwheel]: a wheel on another machine (net_wheel.h), chosen on Home > Network wheel.
+    // netwheel() is null without a network. Connecting saves the choice and switches it on (it
+    // connects again at the next start); disconnecting switches it off.
+    NetWheel* netwheel() { return netwheel_.get(); }
     bool netwheel_enabled() const { return netwheel_on_; }
-    const std::string& netwheel_host() const { return netwheel_host_; }
-    void set_netwheel(bool enabled, const std::string& host);
+    const netxwheel::Target& netwheel_target() const { return netwheel_target_; }
+    void netwheel_connect(const netxwheel::Target& t);
+    void netwheel_disconnect();
+    void set_netwheel_enabled(bool on); // off: disconnect; on: connect to the saved choice
     std::string netwheel_status() const;
 
     // [input] xbox_driver (Windows): "rawinput", the default, reads Xbox pads through SDL's RAWINPUT driver,
@@ -395,9 +399,7 @@ private:
     ForceFeedback ffb_;
     std::unique_ptr<NetWheel> netwheel_; // [netwheel]: a wheel on another machine (net_wheel.h)
     bool netwheel_on_ = false;
-    std::string netwheel_host_ = "auto";
-    int netwheel_port_ = 27920;
-    void start_netwheel(); // netwheel_ from the three above
+    netxwheel::Target netwheel_target_;
     double time_ = 0;
     bool phone_vibration_ = false;
     bool background_ = false;      // [input] background

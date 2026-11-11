@@ -2,19 +2,27 @@
 
 // Network wheel: a steering wheel on another machine, shown to the game as a virtual SDL wheel.
 //
-// A small server next to the wheel (tools/netwheel/wheel_server.py, a Raspberry Pi with a Logitech
-// G920) reads it and streams its state over UDP; this client turns that into a virtual joystick
+// A NetXWheel server next to the wheel (https://github.com/IZImaster/NetXWheel, e.g. a Raspberry Pi
+// with a Logitech G920) reads it and streams its state over UDP (input/netxwheel.h: finding
+// servers, passwords, the session). This turns the connected wheel into a virtual joystick
 // (SDL_AttachVirtualJoystick, type wheel), so the game's own wheel detection, bindings and steering
-// path work unchanged, and sends the race's force feedback back. Protocol: docs/NETWORK_WHEEL.md.
+// path work unchanged, and sends the race's forces back.
 //
-// Configuration, [netwheel] in config.ini:
+// Home > Network wheel (app/screen_netwheel.cpp) picks the server and the wheel; the choice is
+// kept in [netwheel] in config.ini and connected again at the next start:
 //
-//   enabled = off      ; master switch
-//   host    = auto     ; the server's address, or auto: look for it on the local network (broadcast)
-//   port    = 27920
+//   enabled = off          ; connect at start
+//   host = 192.168.1.50    ; the server's last address
+//   port = 27920
+//   server_id = ...        ; finds the server again if its address changes
+//   server_name = ...
+//   wheel = 1
+//   server_password = ...  ; (stored as typed: config.ini is in the app's own storage)
+//   wheel_password = ...
 //
-// The virtual wheel appears while the server answers and goes away when it stops (hot-plug).
-// Settings > Controls > Network wheel switches it and sets the host (InputManager::set_netwheel).
+// The virtual wheel appears while connected and goes away when the session ends (hot-plug).
+
+#include "input/netxwheel.h"
 
 #include <SDL3/SDL_joystick.h>
 
@@ -38,28 +46,29 @@ public:
     NetWheel(const NetWheel&) = delete;
     NetWheel& operator=(const NetWheel&) = delete;
 
-    bool start(const std::string& host, int port); // false: no socket
-    void poll(double dt);                          // once per frame: receive, keep alive, update the virtual wheel
-    void send_force(const NetWheelForce& f);       // every frame while driving
+    bool start();                            // the socket; false: no network
+    void poll(double dt);                    // once per frame: receive, keep alive, update the virtual wheel
+    void send_force(const NetWheelForce& f); // every frame while driving
+
+    void connect(const netxwheel::Target& t) { client_.connect(t); }
+    void disconnect() { client_.disconnect(); }
+    netxwheel::Client& client() { return client_; }
+    const netxwheel::Client& client() const { return client_; }
+
     SDL_JoystickID joystick_id() const { return id_; }
-    bool connected() const { return joy_ != nullptr; }           // the virtual wheel is there
+    bool connected() const { return joy_ != nullptr; } // the virtual wheel is there
     const std::string& device_name() const { return device_name_; }
-    std::string server_address() const;                          // the server's IPv4 once found, else ""
-    static bool valid_host(const std::string& host);             // auto (or empty), or an IPv4 address
+    std::string status_text() const;                   // one line for Settings and the Network wheel page
+
+    static bool valid_host(const std::string& host);   // an IPv4 address
+    static uint32_t parse_ip(const std::string& host); // host order; 0 if not an IPv4 address
 
 private:
-    void attach(const std::string& name);
+    void attach();
     void detach();
-    void apply_state(const uint8_t* p);
-    void send_packet(uint8_t type, const void* body, size_t n);
+    void apply_state(const netxwheel::WheelState& s);
 
-    intptr_t sock_ = -1;
-    uint8_t target_[32] = {}; // sockaddr_in of where packets go
-    bool broadcast_ = false;
-    bool have_ack_ = false;
-    double since_hello_ = 1e9, since_rx_ = 1e9;
-    uint16_t seq_ = 0, last_seq_ = 0;
-    bool have_seq_ = false;
+    netxwheel::Client client_;
     SDL_JoystickID id_ = 0;
     SDL_Joystick* joy_ = nullptr;
     std::string device_name_;

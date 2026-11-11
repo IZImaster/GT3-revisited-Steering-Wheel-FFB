@@ -112,14 +112,28 @@ InputManager::~InputManager() {
 
 void InputManager::load(const IniDocument& cfg) {
     ffb_.configure(ForceFeedbackConfig::load(cfg));
-    // [netwheel] enabled / host / port: a wheel on another machine, shown as a virtual wheel (net_wheel.h).
+    // [netwheel]: a wheel on another machine, shown as a virtual wheel (net_wheel.h).
     {
-        const std::string on = to_lower(cfg.get("netwheel", "enabled").value_or("off"));
+        auto get = [&](const char* k) { return cfg.get("netwheel", k).value_or(""); };
+        const std::string on = to_lower(get("enabled"));
         netwheel_on_ = on == "on" || on == "1" || on == "true";
-        netwheel_host_ = cfg.get("netwheel", "host").value_or("auto");
-        if (netwheel_host_.empty() || to_lower(netwheel_host_) == "auto") netwheel_host_ = "auto";
-        netwheel_port_ = std::clamp(std::atoi(cfg.get("netwheel", "port").value_or("27920").c_str()), 1, 65535);
-        start_netwheel();
+        netxwheel::Target& t = netwheel_target_;
+        t = {};
+        t.ip = NetWheel::parse_ip(get("host"));
+        t.port = u16(std::clamp(std::atoi(cfg.get("netwheel", "port").value_or("27920").c_str()), 1, 65535));
+        t.wheel = std::max(1, std::atoi(cfg.get("netwheel", "wheel").value_or("1").c_str()));
+        t.server_id = get("server_id");
+        t.server_name = get("server_name");
+        t.server_password = get("server_password");
+        t.wheel_password = get("wheel_password");
+        if (!netwheel_) {
+            auto nw = std::make_unique<NetWheel>();
+            if (nw->start()) netwheel_ = std::move(nw);
+            else LOG_WARN("Network wheel: no network socket");
+        }
+        if (netwheel_ && netwheel_on_ && (t.ip || !t.server_id.empty()) &&
+            netwheel_->client().status() == netxwheel::Client::Status::Idle)
+            netwheel_->connect(t);
     }
     for (int i = 0; i < kMaxPlayers; ++i) {
         Player& p = players_[i];
@@ -181,37 +195,49 @@ void InputManager::save(IniDocument& cfg) const {
         p.actions.save(cfg, sec);
     }
     cfg.set("input", "background", background_ ? "on" : "off");
-    cfg.set("netwheel", "enabled", netwheel_on_ ? "on" : "off");
-    cfg.set("netwheel", "host", netwheel_host_);
-    cfg.set("netwheel", "port", std::to_string(netwheel_port_));
+    {
+        const netxwheel::Target& t = netwheel_target_;
+        char host[32] = "";
+        if (t.ip)
+            std::snprintf(host, sizeof host, "%u.%u.%u.%u", t.ip >> 24, (t.ip >> 16) & 255, (t.ip >> 8) & 255, t.ip & 255);
+        cfg.set("netwheel", "enabled", netwheel_on_ ? "on" : "off");
+        cfg.set("netwheel", "host", host);
+        cfg.set("netwheel", "port", std::to_string(t.port));
+        cfg.set("netwheel", "wheel", std::to_string(t.wheel));
+        cfg.set("netwheel", "server_id", t.server_id);
+        cfg.set("netwheel", "server_name", t.server_name);
+        cfg.set("netwheel", "server_password", t.server_password);
+        cfg.set("netwheel", "wheel_password", t.wheel_password);
+    }
 #ifdef SDL_PLATFORM_WINDOWS
     cfg.set("input", "xbox_driver", xbox_rawinput_ ? "rawinput" : "xinput");
 #endif
 }
 
-void InputManager::start_netwheel() {
-    netwheel_.reset(); // (its virtual wheel goes: a device removed as usual)
-    if (!netwheel_on_) return;
-    auto nw = std::make_unique<NetWheel>();
-    if (nw->start(netwheel_host_, netwheel_port_)) netwheel_ = std::move(nw);
+void InputManager::netwheel_connect(const netxwheel::Target& t) {
+    netwheel_target_ = t;
+    netwheel_on_ = true;
+    if (netwheel_) netwheel_->connect(t);
 }
 
-void InputManager::set_netwheel(bool enabled, const std::string& host) {
-    std::string h = host.empty() || to_lower(host) == "auto" ? std::string("auto") : host;
-    if (enabled == netwheel_on_ && h == netwheel_host_) return;
-    netwheel_on_ = enabled;
-    netwheel_host_ = std::move(h);
-    start_netwheel();
+void InputManager::netwheel_disconnect() {
+    netwheel_on_ = false;
+    if (netwheel_) netwheel_->disconnect();
+}
+
+void InputManager::set_netwheel_enabled(bool on) {
+    if (!on) return netwheel_disconnect();
+    netwheel_on_ = true;
+    const netxwheel::Target& t = netwheel_target_;
+    if (netwheel_ && (t.ip || !t.server_id.empty()) && netwheel_->client().status() == netxwheel::Client::Status::Idle)
+        netwheel_->connect(t);
 }
 
 std::string InputManager::netwheel_status() const {
-    if (!netwheel_on_) return "Off";
-    if (!netwheel_) return NetWheel::valid_host(netwheel_host_) ? "No network" : "Not an address: " + netwheel_host_;
-    if (netwheel_->connected()) {
-        const std::string at = netwheel_->server_address();
-        return "Connected: " + netwheel_->device_name() + (at.empty() ? "" : " at " + at);
-    }
-    return netwheel_host_ == "auto" ? "Looking for the server..." : "Waiting for " + netwheel_host_ + "...";
+    if (!netwheel_) return "No network";
+    if (!netwheel_on_ && netwheel_->client().status() == netxwheel::Client::Status::Idle)
+        return netwheel_target_.ip || !netwheel_target_.server_id.empty() ? "Off" : "Off (choose a wheel on Home > Network wheel)";
+    return netwheel_->status_text();
 }
 
 bool InputManager::xbox_rawinput(const IniDocument& cfg) {
