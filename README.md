@@ -122,14 +122,6 @@ certificate, so the first launch needs one extra step:
   ([Building](#building)). With a free account the installed app stops opening
   after 7 days: installing it again renews it, and your saves and settings stay.
 
-Direct links to the newest release, always the same:
-[gt3r-windows-x64.zip](https://github.com/matt-pulsipher/GT3-revisited/releases/latest/download/gt3r-windows-x64.zip),
-[gt3r-macos-arm64.zip](https://github.com/matt-pulsipher/GT3-revisited/releases/latest/download/gt3r-macos-arm64.zip),
-[gt3r-linux-x86_64.tar.gz](https://github.com/matt-pulsipher/GT3-revisited/releases/latest/download/gt3r-linux-x86_64.tar.gz),
-[gt3r-android.apk](https://github.com/matt-pulsipher/GT3-revisited/releases/latest/download/gt3r-android.apk),
-[gt3r-quest.apk](https://github.com/matt-pulsipher/GT3-revisited/releases/latest/download/gt3r-quest.apk),
-[gt3r-windows-x64-vr.zip](https://github.com/matt-pulsipher/GT3-revisited/releases/latest/download/gt3r-windows-x64-vr.zip).
-The game's **Download update** uses them.
 
 Or build it yourself ([Building](#building)); a build from source needs none
 of the steps above.
