@@ -124,7 +124,7 @@ void RaceScreen::render_vr_eyes(App& app, Ui& ui, const render::DrawOptions& o) 
 
 bool RaceScreen::stereo_screen(App& app) const {
     const xr::Session* x = app.xr();
-    return x && x->settings().replay_3d && x->canvas_right() && replaying_ && !attract_ && !quick_ && !logger_mode_ &&
+    return x && x->settings().replay_3d && x->canvas_right() && (replaying_ || demo_) && !attract_ && !backdrop_ && !quick_ && !logger_mode_ &&
            app.gpu() && course_scene_;
 }
 
@@ -134,9 +134,13 @@ bool RaceScreen::stereo_screen(App& app) const {
 // frame, while new pictures come every replay_3d_rate-th frame (the same drawing work per
 // second as the flat replay: two pictures every other frame).
 //
-// The depth: what is at the camera's aim (CameraRig::focus: the followed car) stays at the
-// screen's depth, the distance behind it; the far distance's two pictures are replay_depth x the
-// eyes' distance (6.3 cm) apart on the screen, so it never needs the eyes to look outwards.
+// The depth (natural size): the two cameras are the eyes' distance (6.3 cm) apart times the
+// lens's magnification against the screen's own view (a zoomed TV camera: wider apart; a wide
+// on-board camera: a little narrower), so the world keeps its real size and roundness instead of
+// a model town. replay_depth 0.5 is natural; 1.0 twice that. What is at the camera's aim
+// (CameraRig::focus: the followed car) sits a little in front of the screen; the far distance's
+// two pictures are never more than 0.6 x the eyes' distance apart on the screen (no looking
+// outwards). Demonstrations (the theater's, the licences') too, not only recorded replays.
 void RaceScreen::render_stereo_screen(App& app, Ui& ui) {
     xr::Session& x = *app.xr();
     const xr::Settings& st = x.settings();
@@ -163,14 +167,18 @@ void RaceScreen::render_stereo_screen(App& app, Ui& ui) {
     } else if (original_res_) {
         aspect = 4.0f / 3.0f, width_share = H * 4 / 3 / W;
     }
-    // The far distance's disparity across a picture (normalized device units: 2 = its width).
-    const float disparity = std::clamp(st.replay_depth, 0.0f, 1.0f) * 2 * 0.063f / std::max(0.4f, st.screen_width * width_share);
+    const float shown = std::max(0.4f, st.screen_width * width_share); // the picture's width on the screen (m)
+    const float k = 2 * std::clamp(st.replay_depth, 0.0f, 1.0f);     // 1: natural size
+    const float view_p00 = 2 * std::max(0.5f, st.screen_distance) / shown; // the screen's own "lens"
+    const float far_max = 0.6f * 0.063f * 2 / shown;                    // the far distance's limit (device units)
     auto set_eye = [&](CameraRig& c, float side) { // side: +1 right eye, -1 left, 0 off
-        if (side == 0 || disparity <= 0) return c.set_stereo(0, 0);
-        const float focus = std::clamp(c.focus(), 2.0f, 300.0f);
+        if (side == 0 || k <= 0) return c.set_stereo(0, 0);
+        const float focus = std::clamp(c.focus(), 1.5f, 300.0f);
         const float p00 = 1.0f / (std::tan(c.fovy() / 2) * aspect * CameraRig::kPixelAspect);
-        const float sep = disparity * focus / p00; // metres between the two cameras
-        c.set_stereo(side * sep / 2, side * disparity / 2);
+        const float conv = focus * 1.25f;                     // the screen's depth: a little behind the car
+        float sep = k * 0.063f * p00 / view_p00;              // metres between the two cameras
+        sep = std::min(sep, far_max * conv / p00);
+        c.set_stereo(side * sep / 2, side * (sep * p00 / conv) / 2);
     };
 
     // The right eye into its own canvas (with the screen canvas's layout), its own views (their

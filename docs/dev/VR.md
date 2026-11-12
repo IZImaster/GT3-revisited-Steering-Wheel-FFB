@@ -125,16 +125,21 @@ licence demonstrations, the pre-race shot, 2P split screen, the Analyzer and the
 debug orbit / TV cameras.
 
 **3D replays on the screen** (`[vr] replay_3d = on`, Settings > VR > 3D replays): replays, the
-2P split ones too, stay on the virtual screen but in stereo, like a 3D film
-(`RaceScreen::render_stereo_screen`). The race screen draws the replay twice, from the camera
-moved half the separation to each side (`CameraRig::set_stereo`), each picture shifted so what is
-at the camera's aim (`CameraRig::focus`) stays at the screen's depth; the right eye's picture goes
-into `Session::canvas_right()` (its own views, for their trails and dissolves), the left eye's
-into the canvas. `end_frame` submits the screen twice, `XR_EYE_VISIBILITY_LEFT` with the canvas
-and `RIGHT` with the right eye's swapchain. `replay_depth` (0..1): the far distance's two pictures
-are that times 6.3 cm apart on the screen. New pictures every `replay_3d_rate`-th frame (2 or 3):
-on the others no swapchain image is acquired and the layers show the last released ones, still
-placed for that frame's head pose by the compositor.
+2P split ones too, and the demonstrations (the theater's, the licences') stay on the virtual
+screen but in stereo, like a 3D film (`RaceScreen::render_stereo_screen`). The race screen draws
+the picture twice, from the camera moved half the separation to each side
+(`CameraRig::set_stereo`); the right eye's picture goes into `Session::canvas_right()` (its own
+views, for their trails and dissolves), the left eye's into the canvas. `end_frame` submits the
+screen twice, `XR_EYE_VISIBILITY_LEFT` with the canvas and `RIGHT` with the right eye's swapchain.
+
+The separation is for natural size: 6.3 cm x the lens's magnification against the screen's own
+view (`p00 / (2 screen_distance / picture width)`) x `2 replay_depth` (0.5: natural). A fixed
+separation tied to the aim's distance made wide cameras with a far aim (the on-board views, aim
+100 m) metres wide: a model town. The pictures converge at 1.25 x `CameraRig::focus`, so the
+followed car sits a little in front of the screen, and the separation is cut so the far
+distance's two pictures are at most 0.6 x 6.3 cm apart on the screen. New pictures every
+`replay_3d_rate`-th frame (2 or 3): on the others no swapchain image is acquired and the layers
+show the last released ones, still placed for that frame's head pose by the compositor.
 
 **Layers.** Screen frames: one opaque quad layer, `[vr] screen_width` wide,
 `screen_distance` ahead of the seated origin. Stereo frames: the projection layer

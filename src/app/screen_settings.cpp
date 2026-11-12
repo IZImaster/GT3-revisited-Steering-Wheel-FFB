@@ -968,7 +968,7 @@ private:
                    apply(n);
                });
         if (s.replay_3d) {
-            slider("3D depth", "How strong the 3D effect is. Lower it if your eyes tire.", s.replay_depth, 0.1f, 1.0f,
+            slider("3D depth", "How strong the 3D effect is. 50%: natural size; higher: deeper. Lower it if your eyes tire.", s.replay_depth, 0.1f, 1.0f,
                    0.05f, percent(s.replay_depth), [apply, s](float v) {
                        xr::Settings n = s;
                        n.replay_depth = v;
