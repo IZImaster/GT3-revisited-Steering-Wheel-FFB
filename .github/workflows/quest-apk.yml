@@ -21,6 +21,10 @@ jobs:
             "ndk;27.0.12077973" "cmake;3.22.1" > /dev/null
       - name: Fetch SDL (OpenXR fork)
         run: android/fetch-sdl.sh --xr
+      # The same debug key for every build (android/quest-debug.keystore, a test key, not a release
+      # one), so a new APK installs over the last one (adb install -r) and keeps its settings.
+      - name: Fixed debug key
+        run: mkdir -p ~/.android && cp android/quest-debug.keystore ~/.android/debug.keystore
       - name: Build Quest APK
         working-directory: android
         run: ./gradlew --no-daemon assembleDebug -Pquest
