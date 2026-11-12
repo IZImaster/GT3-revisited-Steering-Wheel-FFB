@@ -8,6 +8,41 @@ disc image (`.iso` or `.chd`) that you made from your own copy of the game. At r
 it reads the image directly and decodes the assets. Nothing is extracted to
 disk or redistributed.
 
+## This fork: a steering wheel over the network, and 3D replays (Meta Quest 3)
+
+This fork adds two things to GT3 Revisited, mainly for **Meta Quest 3**:
+
+- **Network wheel:** play with a real steering wheel and pedals (tested with a Logitech G920),
+  force feedback included. The wheel plugs into a small computer, such as a Raspberry Pi or a
+  Windows PC, which runs the free [NetXWheel](https://github.com/IZImaster/NetXWheel) server and
+  sends it to the headset over Wi-Fi. Several wheels and servers, with optional passwords.
+- **3D replays in VR:** replays and the Replay Theater's demonstrations in stereo 3D on the
+  virtual screen, like a 3D film (Settings > VR > 3D replays).
+
+### Try it on Quest 3
+
+1. **Download the APK:**
+   [gt3r-quest-debug.apk](https://github.com/IZImaster/GT3-revisited-Steering-Wheel-FFB/releases/download/quest-debug/gt3r-quest-debug.apk)
+   ([release page](https://github.com/IZImaster/GT3-revisited-Steering-Wheel-FFB/releases/tag/quest-debug)).
+   It is rebuilt automatically from the latest changes, so this link always gives the newest version.
+2. **Install it** with the headset in developer mode, connected by USB:
+   `adb install -r gt3r-quest-debug.apk` (`-r` keeps your settings when you update).
+3. **Start the game** and pick your own GT3 A-Spec disc image (`.iso` or `.chd`). None is included.
+4. **The wheel:** install NetXWheel on the computer the wheel is plugged into
+   ([instructions](https://github.com/IZImaster/NetXWheel#readme)). Then, in the game: the
+   **Network wheel** page (next to the Save editor), pick your server and wheel, type the passwords if
+   they have any. Tip: put the headset and the server on **5 GHz** Wi-Fi, or the wheel can lag.
+
+### Disclaimer
+
+This is a hobby project, provided **as is**, without any warranty. You use it **at your own
+risk**: the authors accept **no responsibility or liability** for any damage or loss, including to
+your steering wheel, headset, computer or other hardware, your saves or other data, or any injury.
+A force feedback wheel can turn on its own with real force: keep your hands and fingers clear when
+starting or testing it. Unofficial: not affiliated with or endorsed by Sony, Polyphony Digital,
+Logitech or Meta. That said, it has been tested on real hardware (Logitech G920, Raspberry Pi 3B+,
+Meta Quest 3) and **should work fine** for you too.
+
 > **Status: the whole game is playable.** Everything in the original is
 > implemented: GT Mode (dealers, garage, tuning, licenses, championships,
 > endurance races with pit stops, endings), Arcade (single race, time trial,
