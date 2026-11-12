@@ -4,7 +4,10 @@ name: quest-apk
 on:
   workflow_dispatch:
   push:
-    branches: [netwheel]
+    branches: [netwheel, netxwheel-v1]
+
+permissions:
+  contents: write # the public "quest-debug" release below
 
 jobs:
   quest:
@@ -32,3 +35,19 @@ jobs:
         with:
           name: gt3r-quest-debug
           path: android/app/build/outputs/apk/debug/app-quest-debug.apk
+      # A public download for everyone (no GitHub account needed): the "quest-debug" release,
+      # its APK replaced by each build of netxwheel-v1.
+      - name: Publish the quest-debug release
+        if: github.ref == 'refs/heads/netxwheel-v1'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp android/app/build/outputs/apk/debug/app-quest-debug.apk gt3r-quest-debug.apk
+          git tag -f quest-debug && git push -f origin quest-debug
+          notes="Test build for Meta Quest 3 with the network wheel (NetXWheel: https://github.com/IZImaster/NetXWheel) and 3D replays. Built from netxwheel-v1 at ${GITHUB_SHA::7}. Install: adb install -r gt3r-quest-debug.apk. You need your own GT3 A-Spec disc image."
+          if gh release view quest-debug > /dev/null 2>&1; then
+            gh release edit quest-debug --prerelease --title "Quest test build (network wheel)" --notes "$notes"
+          else
+            gh release create quest-debug --prerelease --title "Quest test build (network wheel)" --notes "$notes"
+          fi
+          gh release upload quest-debug gt3r-quest-debug.apk --clobber
